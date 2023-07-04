@@ -9,8 +9,9 @@ from torch.utils.data import DataLoader
 
 import xarray as xr
 import numpy as np
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from typing import Type, Tuple
 import logging
 
 def load_data(
@@ -120,6 +121,38 @@ def save_model(
         save_path
     )
 
+def load_model(path: Path, device: torch.device) -> Tuple[nn.Module,nn.Module,torch.optim.Optimizer,Loss,Loss,int,int,date,date,date]:
+    """Loads the model, optimizer and loss from the path"""
+    checkpoint = torch.load(path, map_location=device)
+    
+    # Encoder
+    encoder = Encoder(checkpoint['input_channels'], checkpoint['feature_dimension'])
+    encoder.load_state_dict(checkpoint['encoder'])
+    encoder.to(device)
+    
+    # Decoder
+    decoder = Decoder(checkpoint['input_channels'], checkpoint['feature_dimension'])
+    decoder.load_state_dict(checkpoint['decoder'])
+    decoder.to(device)
+
+    # Optimizer
+    optimizer = torch.optim.Adam(params = list(encoder.parameters()) + list(decoder.parameters()), lr=checkpoint["learning_rate"])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    
+    # Loss
+    training_loss = checkpoint["training_loss"]
+    validation_loss = checkpoint["validation_loss"]
+
+    # Misc
+    fill_nan = checkpoint["fill_nan"]
+    epoch = checkpoint["epoch"]
+    train_start = datetime.strptime(checkpoint["train_start"], "%Y-%m-%d").date()
+    train_end = datetime.strptime(checkpoint["train_end"], "%Y-%m-%d").date()
+    validation_end = datetime.strptime(checkpoint["validation_end"], "%Y-%m-%d").date()
+    
+    # Dataset parameters
+    return encoder, decoder, optimizer, training_loss, validation_loss, fill_nan, epoch, train_start, train_end, validation_end
+
 def main():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     BASEPATH = Path(".")
@@ -171,7 +204,7 @@ def main():
     encoder.train()
     decoder.train()
 
-    for epoch in epochs:
+    for epoch in range(1,epochs+1):
         training_loss = 0
         validation_loss = 0
 
