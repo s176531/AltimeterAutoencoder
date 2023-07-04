@@ -27,6 +27,6 @@ class SLADataset(Dataset):
         features_time = self.t[idx]
         
         # Target
-        mask = self.mask[idx]
+        mask = self.mask[idx].unsqueeze(0)
         return features.unsqueeze(0), mask, features_time
 

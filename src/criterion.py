@@ -15,15 +15,18 @@ class Masked_Loss(nn.Module):
         super().__init__()
         self.loss = loss()
         
-    def forward(self, ground_truth, predictions, mask):
+    def forward(self, ground_truth, predictions, mask = None):
         """
         Maskes the output and target based on the mask.
         The mask is True where the values should be ignored.
         """
         total_loss = torch.tensor(0, device = ground_truth.device, dtype = ground_truth.dtype)
         for day_idx in range(ground_truth.shape[1]):
-            current_mask = ~mask[:, day_idx]
-            loss = self.loss(ground_truth[:, day_idx][current_mask], predictions[:, day_idx][current_mask])
+            if mask is None:
+                loss = self.loss(ground_truth[:, day_idx], predictions[:, day_idx])
+            else:
+                current_mask = ~mask[:, day_idx]
+                loss = self.loss(ground_truth.squeeze(2)[:, day_idx][current_mask], predictions.squeeze(2)[:, day_idx][current_mask])
             total_loss += loss
         return total_loss / ground_truth.shape[1]
 
