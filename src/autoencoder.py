@@ -1,47 +1,81 @@
 from torch import nn
+import torch
 import functools
-from torch.nn import init
+from typing import Type, List
 
 class Encoder(nn.Module):
-    def __init__(self, input_channels, feature_dimension = 528, n_downsampling = 3, padding_type = 'reflect'):
+    def __init__(
+            self,
+            input_channels: int,
+            feature_dimension: int = 528,
+            n_downsampling: int = 3,
+            padding_type: nn.modules.padding._ReflectionPadNd | int = nn.ReflectionPad2d(1)
+        ):
         super().__init__()
         self.feat_dim = feature_dimension
-        self.encoder = ResnetEncoder(input_n_channels = input_channels, out_dimension = feature_dimension, n_downsampling = n_downsampling, padding_type = padding_type)
+        self.encoder = ResnetEncoder(
+            input_n_channels = input_channels,
+            out_dimension = feature_dimension,
+            n_downsampling = n_downsampling,
+            padding_type = padding_type
+        )
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Args:
-            x --- (N, T, img_channels, H, W)
+        Input:
+            X = [batch_size, seq_len, in_channels, height, width]
         Returns:
-            feat --- (N, T, 256, 16, 16)
+            output = [batch_size, seq_len, feature_dimension, height/(2^n_downsampling), width/(2^n_downsampling)]
         """
         batch_size, frames, _, _, _ = x.shape
-        feat = self.encoder(x.flatten(0, 1))
-        _, channels, height, width = feat.shape
-        feat = feat.reshape(batch_size, frames, channels, height, width)
 
-        return feat
+        feature_space = self.encoder(x.flatten(0, 1))
+        _, channels, height, width = feature_space.shape
+        feature_space = feature_space.reshape(batch_size, frames, channels, height, width)
+
+        return feature_space
 
 class Decoder(nn.Module):
-    def __init__(self, output_channels, feature_dimension = 528, n_downsampling = 3, out_layer = nn.Tanh()):
+    def __init__(
+            self,
+            output_channels: int,
+            feature_dimension: int = 528,
+            n_upsamples: int = 3,
+            out_layer: nn.Module = nn.Tanh()
+        ):
         super().__init__()
-        self.decoder = ResnetDecoder(output_n_channels = output_channels, feature_dimension = feature_dimension, n_downsampling = n_downsampling, out_layer_activation = out_layer)
+        self.decoder = ResnetDecoder(
+            output_n_channels = output_channels,
+            feature_dimension = feature_dimension,
+            n_upsamples = n_upsamples,
+            out_layer_activation = out_layer
+        )
 
-    def forward(self, feat):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Args:
-            feat --- (N, T, 256, 16, 16)
+        Input:
+            x = [batch_size, seq_len, feature_dimension, height, width]
+        Returns:
+            output = [batch_size, seq_len, feature_dimension, height*(2^n_upsamples), width*(2^n_upsamples)]
         """
-        batch_size, frames, _, _, _ = feat.shape
+        batch_size, frames, _, _, _ = x.shape
 
+        output = self.decoder(x.flatten(0, 1))
+        _, channels, height, width = output.shape
 
-        out = self.decoder(feat.flatten(0, 1))
-        _, channels, height, width = out.shape
-
-        return out.reshape(batch_size, frames, channels, height, width)
+        return output.reshape(batch_size, frames, channels, height, width)
 
 class ResnetEncoder(nn.Module):
-    def __init__(self, input_n_channels, n_filters_last_conv=64, out_dimension = 528, n_downsampling = 2, norm_layer=nn.BatchNorm2d, use_dropout=False, padding_type='reflect'):
+    def __init__(
+            self,
+            input_n_channels: int,
+            n_filters_last_conv: int = 64,
+            out_dimension: int = 528,
+            n_downsampling: int = 2,
+            norm_layer: Type[nn.modules.batchnorm._BatchNorm] = nn.BatchNorm2d,
+            use_dropout: bool = False,
+            padding_type: nn.modules.padding._ReflectionPadNd | int = nn.ReflectionPad2d(1)
+        ):
         """Construct a Resnet-based Encoder
         Parameters:
             input_n_channels (int)      -- the number of channels in input images
@@ -52,40 +86,59 @@ class ResnetEncoder(nn.Module):
         """
 
         super().__init__()
-        if type(norm_layer) == functools.partial:
+        if isinstance(norm_layer, functools.partial):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
-        model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_n_channels, n_filters_last_conv, kernel_size=7, padding=0, bias=use_bias),
-                 norm_layer(n_filters_last_conv),
-                 nn.ReLU(True)]
+        model: List[nn.Module] = [
+            nn.ReflectionPad2d(3),
+            nn.Conv2d(input_n_channels, n_filters_last_conv, kernel_size=7, padding=0, bias=use_bias),
+            norm_layer(n_filters_last_conv),
+            nn.ReLU(True)
+        ]
 
-        for i in range(n_downsampling - 1):  # add downsampling layers
+        # Add downsampling layers
+        for i in range(n_downsampling):
             mult = 2 ** i
-            model.extend([nn.Conv2d(n_filters_last_conv * mult, n_filters_last_conv * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                      norm_layer(n_filters_last_conv * mult * 2),
-                      nn.ReLU(True)])
+            if i == n_downsampling - 1:
+                out_channels = out_dimension
+            else:
+                out_channels = n_filters_last_conv * mult * 2
+            model.extend(
+                [
+                    nn.Conv2d(n_filters_last_conv * mult, out_channels, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                    norm_layer(n_filters_last_conv * mult * 2),
+                    nn.ReLU(True)
+                ]
+            )
         
-        #last down-sample layer
-        mult = 2 ** (n_downsampling - 1)
-        model.extend([nn.Conv2d(n_filters_last_conv * mult, out_dimension, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                      norm_layer(out_dimension),
-                      nn.ReLU(True)])
-        
-        #9 resnet-blocks
-        for i in range(9):       # add ResNet blocks
-            model.append(ResnetBlock(out_dimension, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias))
+        #Add 9 resnet-blocks
+        for i in range(9):
+            model.append(ResnetBlock(out_dimension, padding_type=padding_type, norm_layer=norm_layer, dropout=use_dropout, use_bias=use_bias))
         
         model.append(nn.ReLU())
         self.model = nn.Sequential(*model)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Input:
+            X = [batch_size, input_n_channels, height, width]
+        Returns:
+            output = [batch_size, out_dimension, height/(2^n_downsampling), width/(2^n_downsampling)]
+        """
         return self.model(x)
 
 class ResnetDecoder(nn.Module):
-    def __init__(self, output_n_channels, n_filters_last_conv=64, feature_dimension = 528, n_downsampling = 2, norm_layer=nn.BatchNorm2d, out_layer_activation = nn.Tanh()):
+    def __init__(
+            self,
+            output_n_channels: int,
+            n_filters_last_conv: int = 64,
+            feature_dimension: int = 528,
+            n_upsamples: int = 2,
+            norm_layer: Type[nn.modules.batchnorm._BatchNorm] = nn.BatchNorm2d,
+            out_layer_activation: nn.Module = nn.Tanh()
+        ):
         """Construct a Resnet-based Encoder
         Parameters:
             output_n_channels (int)     -- the number of channels in output images
@@ -94,27 +147,22 @@ class ResnetDecoder(nn.Module):
             out_layer_activation        -- activation function on output layers
         """
         super().__init__()
-        if type(norm_layer) == functools.partial:
+        if isinstance(norm_layer, functools.partial):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        
-        if not str(out_layer_activation) in ["Tanh()", "Sigmoid()"]:
-            raise ValueError("Unsupported output activation function")
-        
-        model = []
 
         #The first up-sampling layer
-        mult = 2**n_downsampling
-        model.extend([nn.ConvTranspose2d(feature_dimension, int(n_filters_last_conv * mult / 2),
-                                         kernel_size=3, stride=2,
-                                         padding=1, output_padding=1,
-                                         bias=use_bias),
-                      norm_layer(int(n_filters_last_conv * mult / 2)),
-                      nn.ReLU(True)])
+        mult = 2**n_upsamples
+        model: List[nn.Module] = [
+            nn.ConvTranspose2d(feature_dimension, int(n_filters_last_conv * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias),
+            norm_layer(int(n_filters_last_conv * mult / 2)),
+            nn.ReLU(True)
+        ]
 
-        for i in range(1, n_downsampling):  # add upsampling layers
-            mult = 2 ** (n_downsampling - i)
+        # Add upsampling layers
+        for i in range(1, n_upsamples):
+            mult = 2 ** (n_upsamples - i)
             model.extend(
                 [
                     nn.ConvTranspose2d(
@@ -136,93 +184,62 @@ class ResnetDecoder(nn.Module):
 
         self.model = nn.Sequential(*model)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Input:
+            x = [batch_size, feature_dimension, height, width]
+        Returns:
+            output = [batch_size, output_n_channels, height*(2^n_upsamples), width*(2^n_upsamples)]
+        """
         return self.model(x)
 
 
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Initialize the Resnet block
-        A resnet block is a conv block with skip connections
-        We construct a conv block with build_conv_block function,
-        and implement skip connections in <forward> function.
-        Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
-        """
-        super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+    def __init__(
+            self,
+            dim: int,
+            padding_type: nn.modules.padding._ReflectionPadNd | int,
+            norm_layer: Type[nn.modules.batchnorm._BatchNorm],
+            dropout: float,
+            use_bias: bool
+        ):
         """Construct a convolutional block.
         Parameters:
             dim (int)           -- the number of channels in the conv layer.
-            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
+            padding_type (_ReflectionPadNd or padding size)  -- the name of padding layer
             norm_layer          -- normalization layer
             use_dropout (bool)  -- if use dropout layers.
             use_bias (bool)     -- if the conv layer uses bias or not
         Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
         """
-        conv_block = []
+        super().__init__()
+        conv_block: List[nn.Module] = []
         p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
+        if isinstance(padding_type, nn.modules.padding._ReflectionPadNd):
+            conv_block.append(padding_type)
         else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+            p = padding_type
 
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
+        conv_block.extend(
+            [
+                nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias),
+                norm_layer(dim),
+                nn.ReLU(True)
+            ]
+        )
+        if dropout:
+            conv_block.append(nn.Dropout(dropout))
 
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
+        if isinstance(padding_type, nn.modules.padding._ReflectionPadNd):
+            conv_block.append(padding_type)
 
-        return nn.Sequential(*conv_block)
+        conv_block.append(nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias))
+        conv_block.append(norm_layer(dim))
+        self.conv_block = nn.Sequential(*conv_block)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward function (with skip connections)"""
-        out = x + self.conv_block(x)  # add skip connections
+        out = x + self.conv_block(x)
         return out
-
-def init_weights(net, init_type='normal', init_gain=0.02):
-    """Initialize network weights.
-    Parameters:
-        net (network)   -- network to be initialized
-        init_type (str) -- the name of an initialization method: normal | xavier | kaiming | orthogonal
-        init_gain (float)    -- scaling factor for normal, xavier and orthogonal.
-    We use 'normal' in the original pix2pix and CycleGAN paper. But xavier and kaiming might
-    work better for some applications. Feel free to try yourself.
-    """
-    def init_func(m):  # define the initialization function
-        classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-            if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, init_gain)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=init_gain)
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=init_gain)
-            else:
-                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-            if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
-        elif classname.find('BatchNorm2d') != -1:  # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
-            init.normal_(m.weight.data, 1.0, init_gain)
-            init.constant_(m.bias.data, 0.0)
-
-    print('initialize network with %s' % init_type)
-    net.apply(init_func)  # apply the initialization function <init_func>

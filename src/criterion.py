@@ -1,21 +1,20 @@
 import torch
 from torch import nn
-import warnings
-from typing import Any, List, Type
+from typing import List, Type
 
 class Loss():
-    def __init__(self, losses: List[nn.modules.loss._Loss]):
+    def __init__(self, losses: List[nn.Module]):
         self.losses = losses
 
-    def __call__(self, ground_truth, predictions, mask):
-        return sum([loss(ground_truth, predictions, mask) for loss in self.losses])
+    def __call__(self, ground_truth: torch.Tensor, predictions: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
+        return sum([loss(ground_truth, predictions, mask) for loss in self.losses]) # type: ignore
 
 class Masked_Loss(nn.Module):
     def __init__(self, loss: Type[nn.modules.loss._Loss]):
         super().__init__()
         self.loss = loss()
         
-    def forward(self, ground_truth, predictions, mask = None):
+    def forward(self, ground_truth: torch.Tensor, predictions: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         Maskes the output and target based on the mask.
         The mask is True where the values should be ignored.
@@ -31,7 +30,7 @@ class Masked_Loss(nn.Module):
         return total_loss / ground_truth.shape[1]
 
 class GDL(nn.Module):
-    def __init__(self, alpha = 1, print_warning = True):
+    def __init__(self, alpha: float = 1):
         """
         Gradient Difference Loss
         Args:
@@ -39,9 +38,8 @@ class GDL(nn.Module):
         """
         super().__init__()
         self.alpha = alpha
-        self.print_warning = print_warning
 
-    def __call__(self, ground_truth, predictions, mask = None):
+    def __call__(self, ground_truth: torch.Tensor, predictions: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         predictions --- tensor with shape (batch_size, frames, channels, height, width)
         ground_truth --- tensor with shape (batch_size, frames, channels, height, width)
@@ -49,7 +47,6 @@ class GDL(nn.Module):
 
         ground_truth = ground_truth.flatten(0, 1)
         predictions = predictions.flatten(0, 1)
-        mask = mask.flatten(0, 1)
 
         ground_truth_i1 = ground_truth[:, :, 1:, :]
         ground_truth_i2 = ground_truth[:, :, :-1, :]
@@ -59,19 +56,7 @@ class GDL(nn.Module):
         predictions_i1 = predictions[:, :, 1:, :]
         predictions_i2 = predictions[:, :, :-1, :]
         predictions_j1 = predictions[:, :, :, :-1]
-        predictions_j2 = predictions[:, :, :, 1:]
-
-        if mask is None:
-            if self.print_warning:
-                warnings.warn("Mask was not set in GDL")
-        else:
-            mask_i1 = mask[:, :, 1:, :]
-            mask_i2 = mask[:, :, :-1, :]
-            mask_j1 = mask[:, :, :, :-1]
-            mask_j2 = mask[:, :, :, 1:]
-            mask1 = ~(mask_i1 | mask_i2)
-            mask2 = ~(mask_j1 | mask_j2)
-            
+        predictions_j2 = predictions[:, :, :, 1:]           
 
         term1 = torch.abs(ground_truth_i1 - ground_truth_i2)
         term2 = torch.abs(predictions_i1 - predictions_i2)
@@ -85,6 +70,13 @@ class GDL(nn.Module):
             gdl1 = gdl1.mean()
             gdl2 = gdl2.mean()
         else:
+            mask = mask.flatten(0, 1)
+            mask_i1 = mask[:, :, 1:, :]
+            mask_i2 = mask[:, :, :-1, :]
+            mask_j1 = mask[:, :, :, :-1]
+            mask_j2 = mask[:, :, :, 1:]
+            mask1 = ~(mask_i1 | mask_i2)
+            mask2 = ~(mask_j1 | mask_j2)
             gdl1 = gdl1[mask1].mean()
             gdl2 = gdl2[mask2].mean()
         gdl_loss = gdl1 + gdl2

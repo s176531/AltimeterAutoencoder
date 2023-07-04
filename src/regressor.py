@@ -1,7 +1,18 @@
 import numpy as np
 import pickle
 from typing import List, Tuple, BinaryIO, Dict, Any, Type, Literal
+import sys
+from pathlib import Path
+from . import _types
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    Self = None
 
+class NotFittedError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
 
 class Regression:
     def __init__(
@@ -57,7 +68,7 @@ class Regression:
                 length += Regression.coef_length(t, d) - 1
         return length
 
-    def create_kernel(self, time):
+    def create_kernel(self, time: _types.float_like) -> _types.float_like:
         """Create kernel matrix"""
         if isinstance(self.deg, int):
             if self.deg < 0:
@@ -88,7 +99,7 @@ class Regression:
             raise ValueError(f"Expected fit_type to be of type int or tuple, got {type(self.fit_type)}")
         return kernel_elements
 
-    def add_kernel_element(self, kernel, time, element: str, i: int):
+    def add_kernel_element(self, kernel: _types.float_like, time: _types.float_like, element: str, i: int) -> _types.float_like:
         """Constructor for adding elements to kernel matrix"""
         if element == "poly":
             kernel_out = np.hstack([kernel, time**i])
@@ -102,7 +113,7 @@ class Regression:
             raise ValueError('Use one of fit_types: "poly", "sin", "cos" or "fourier"')
         return kernel_out # type: ignore
         
-    def fit(self, x, y) -> None:
+    def fit(self, x: _types.float_like | _types.time_like, y: _types.float_like) -> None:
         """
         Get model coefficients
         x: time
@@ -121,13 +132,13 @@ class Regression:
         self.coefs = coefs.flatten()
         self._trained = True
     
-    def predict(self, x):
+    def predict(self, x: _types.float_like | _types.time_like) -> _types.float_like:
         """
         Evaluate regression in input time values
         x: time
         """
         if not self._trained or self.coefs is None:
-            raise ValueError("Fit must be called before predict")
+            raise NotFittedError("Fit must be called before predict")
         eval_time = x.astype(np.int64).reshape(-1,1)/(365.25*24*3600e9) # ns -> yr
         kernel = self.create_kernel(eval_time)
         return kernel@self.coefs
@@ -137,12 +148,12 @@ class Regression:
         pickle.dump(self.get_parameters(), file)
 
     @classmethod
-    def load(cls, file: BinaryIO):
+    def load(cls, file: BinaryIO) -> Self:
         """ Loads the model from a file"""
         return cls.set_parameters(pickle.load(file))
     
     @classmethod
-    def set_parameters(cls, parameters: Dict[str, Any]):
+    def set_parameters(cls, parameters: Dict[str, Any]) -> Self:
         """Reinitialize instance of class"""
         regression = cls(parameters.get("fit_type"), parameters.get("deg"), parameters.get("period")) # type: ignore
         regression.coefs = parameters.get("coefs")
@@ -163,7 +174,7 @@ class MetaRegression:
 
     def __init__(
             self,
-            regressor,
+            regressor: Type[Regression],
             kwargs: Dict[str, Any],
             dim: Literal[0, 1]
         ):
@@ -197,7 +208,7 @@ class MetaRegression:
     def invert_dim(self) -> Literal[0, 1]:
         return 1 - self.dim # type: ignore
 
-    def fit(self, x, y):
+    def fit(self, x: _types.float_like | _types.time_like, y: _types.float_like):
         """
         Fitting x ~ Y where x is a vector that maps to each element in the matrix Y.
         This means x ~ Y[0], x ~ Y[1], ...
@@ -235,10 +246,10 @@ class MetaRegression:
             model_id += 1
         self._trained = True
 
-    def predict(self, x):
+    def predict(self, x: _types.float_like | _types.time_like) -> _types.float_like:
         """ Makes a prediction using x: time"""
         if not self._trained or self._y_shape is None:
-            raise ValueError("Fit must be called before predict")
+            raise NotFittedError("Fit must be called before predict")
 
         predictions = np.full((len(x), self._y_shape[self.invert_dim]), np.nan)
         for i in range(self._y_shape[self.invert_dim]):
@@ -258,12 +269,12 @@ class MetaRegression:
         pickle.dump(self.get_parameters(), file)
 
     @classmethod
-    def load(cls, file: BinaryIO):
+    def load(cls, file: BinaryIO) -> Self:
         """ Loads the model from a file"""
         return cls.set_parameters(pickle.load(file))
     
     @classmethod
-    def set_parameters(cls, parameters: Dict[str, Any]):
+    def set_parameters(cls, parameters: Dict[str, Any]) -> Self:
         """Reinitialize instance of class"""
         regressor = cls(parameters.get("regressor"), parameters.get("kwargs"), parameters.get("dim")) # type: ignore
         regressor.internal_parameters = parameters["internal_parameters"]
@@ -283,3 +294,15 @@ class MetaRegression:
             "_trained": self._trained,
             "_y_shape": self._y_shape
         }
+
+def fit_regressor(times, sla, save_path: Path):
+    # Create and fit model
+    function_kwargs = {"fit_type": ("poly", "fourier"), "period": 1, "deg": (1,1)}
+    regressor = MetaRegression(Regression, function_kwargs, 0)
+    regressor.fit(times, sla.reshape(sla.shape[0], -1))
+
+    # Save metaregressor
+    with open(save_path, 'wb') as file:
+        regressor.save(file)
+    
+    return regressor
