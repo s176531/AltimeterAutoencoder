@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 import functools
-from typing import Type, List
+from typing import Type, List, Tuple
 
 class Encoder(nn.Module):
     def __init__(
@@ -20,6 +20,13 @@ class Encoder(nn.Module):
             out_dimension = feature_dimension,
             n_downsampling = n_downsampling,
             padding_type = padding_type
+        )
+
+    def get_out_frame_size(self, frame_size: Tuple[int, int]):
+        """ Frame size is (Height, Width)"""
+        return (
+            frame_size[0]/(2**self.n_downsampling),
+            frame_size[1]/(2**self.n_downsampling)
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -54,6 +61,13 @@ class Decoder(nn.Module):
             feature_dimension = feature_dimension,
             n_upsamples = n_upsamples,
             out_layer_activation = out_layer
+        )
+    
+    def get_out_frame_size(self, frame_size: Tuple[int, int]):
+        """ Frame size is (Height, Width)"""
+        return (
+            frame_size[0] * 2**self.n_upsamples,
+            frame_size[1] * 2**self.n_upsamples
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
