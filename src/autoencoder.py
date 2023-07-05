@@ -12,7 +12,9 @@ class Encoder(nn.Module):
             padding_type: nn.modules.padding._ReflectionPadNd | int = nn.ReflectionPad2d(1)
         ):
         super().__init__()
-        self.feat_dim = feature_dimension
+        self.input_channels = input_channels
+        self.n_downsampling = n_downsampling
+        self.feature_dimension = feature_dimension
         self.encoder = ResnetEncoder(
             input_n_channels = input_channels,
             out_dimension = feature_dimension,
@@ -44,6 +46,9 @@ class Decoder(nn.Module):
             out_layer: nn.Module = nn.Tanh()
         ):
         super().__init__()
+        self.output_channels = output_channels
+        self.n_upsamples = n_upsamples
+        self.feature_dimension = feature_dimension
         self.decoder = ResnetDecoder(
             output_n_channels = output_channels,
             feature_dimension = feature_dimension,
