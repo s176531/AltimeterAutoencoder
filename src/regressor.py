@@ -92,7 +92,7 @@ class Regression:
         elif isinstance(self.fit_type, str) and isinstance(self.deg, tuple):
             raise ValueError(f"Multiple degrees, but only one type given. Lengths must match")
         elif isinstance(self.fit_type, tuple) and isinstance(self.deg, tuple):
-            kernel_elements = []
+            kernel_elements: List[Tuple[str, int]] = []
             for ft,deg in zip(self.fit_type, self.deg):
                 kernel_elements.extend([(ft, d) for d in range(1,deg+1)])
         else:
@@ -295,7 +295,7 @@ class MetaRegression:
             "_y_shape": self._y_shape
         }
 
-def fit_regressor(times, sla, save_path: Path):
+def fit_regressor(times: _types.time_like, sla: _types.float_like, save_path: Path) -> MetaRegression:
     # Create and fit model
     function_kwargs = {"fit_type": ("poly", "fourier"), "period": 1, "deg": (1,1)}
     regressor = MetaRegression(Regression, function_kwargs, 0)

@@ -5,20 +5,20 @@ from datetime import date, datetime
 from typing import Tuple
 
 def save_model(
-        encoder,
-        decoder,
-        epoch,
-        training_loss,
-        validation_loss,
-        train_start,
-        train_end,
-        validation_end,
-        fill_nan,
-        input_channels,
-        feature_dimension,
-        learning_rate,
-        optimizer,
-        save_path
+        encoder: Encoder,
+        decoder: Decoder,
+        epoch: int,
+        training_loss: float,
+        validation_loss: float,
+        train_start: date,
+        train_end: date,
+        validation_end: date,
+        fill_nan: float,
+        input_channels: int,
+        feature_dimension: int,
+        learning_rate: float,
+        optimizer: torch.optim.Optimizer,
+        save_path: Path
     ):
     torch.save(
         {
