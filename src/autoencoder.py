@@ -67,7 +67,7 @@ class Decoder(nn.Module):
         """ Frame size is (Height, Width)"""
         return (
             int(frame_size[0] * 2**self.n_upsamples),
-            intframe_size[1] * 2**self.n_upsamples)
+            int(frame_size[1] * 2**self.n_upsamples)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
