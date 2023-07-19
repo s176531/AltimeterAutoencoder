@@ -39,7 +39,7 @@ def save_model(
         save_path
     )
 
-def load_model(path: Path, device: torch.device) -> Tuple[Encoder, Decoder, torch.optim.Optimizer, float, float, float, int, date, date, date]:
+def load_model(path: Path, device: torch.device) -> Tuple[Encoder, Decoder, torch.optim.Optimizer, float, float, float, int, date, date, date, float, float]:
     """Loads the model, optimizer and loss from the path"""
     checkpoint = torch.load(path, map_location=device)
     
@@ -67,6 +67,8 @@ def load_model(path: Path, device: torch.device) -> Tuple[Encoder, Decoder, torc
     train_start = datetime.strptime(checkpoint["train_start"], "%Y-%m-%d").date()
     train_end = datetime.strptime(checkpoint["train_end"], "%Y-%m-%d").date()
     validation_end = datetime.strptime(checkpoint["validation_end"], "%Y-%m-%d").date()
+    min_value = checkpoint['min']
+    difference = checkpoint['difference']
     
     # Dataset parameters
-    return encoder, decoder, optimizer, training_loss, validation_loss, fill_nan, epoch, train_start, train_end, validation_end
+    return encoder, decoder, optimizer, training_loss, validation_loss, fill_nan, epoch, train_start, train_end, validation_end, min_value, difference
