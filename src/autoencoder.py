@@ -22,11 +22,11 @@ class Encoder(nn.Module):
             padding_type = padding_type
         )
 
-    def get_out_frame_size(self, frame_size: Tuple[int, int]):
+    def get_out_frame_size(self, frame_size: Tuple[int, int]) -> Tuple[int, int]:
         """ Frame size is (Height, Width)"""
         return (
-            frame_size[0]/(2**self.n_downsampling),
-            frame_size[1]/(2**self.n_downsampling)
+            frame_size[0]//(2**self.n_downsampling),
+            frame_size[1]//(2**self.n_downsampling)
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -63,11 +63,11 @@ class Decoder(nn.Module):
             out_layer_activation = out_layer
         )
     
-    def get_out_frame_size(self, frame_size: Tuple[int, int]):
+    def get_out_frame_size(self, frame_size: Tuple[int, int]) -> Tuple[int, int]:
         """ Frame size is (Height, Width)"""
         return (
-            frame_size[0] * 2**self.n_upsamples,
-            frame_size[1] * 2**self.n_upsamples
+            int(frame_size[0] * 2**self.n_upsamples),
+            int(frame_size[1] * 2**self.n_upsamples)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -127,7 +127,7 @@ class ResnetEncoder(nn.Module):
             model.extend(
                 [
                     nn.Conv2d(n_filters_last_conv * mult, out_channels, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                    norm_layer(n_filters_last_conv * mult * 2),
+                    norm_layer(out_channels),
                     nn.ReLU(True)
                 ]
             )
